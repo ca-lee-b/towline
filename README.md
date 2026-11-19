@@ -2,6 +2,10 @@
 
 Towline runs Codex inside a sandbox and connects it to your controller over an outbound WebSocket. The controller sends commands and receives Codex events. If the connection drops, Codex keeps running while Towline reconnects.
 
+## Motivation
+
+As cloud agents/sandboxes are created, users need a way to follow its progress through network interruptions. Towline provides that connection, keeping the Codex session alive and making missed events available for replay. It allows an easy way to stream Codex events.
+
 ## Usage
 
 Build the binary from the repository root with Go 1.23 or later.
