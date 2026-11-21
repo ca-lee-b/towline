@@ -50,8 +50,11 @@ func TestReplayFollowsEventsAppendedWhileDisconnected(t *testing.T) {
 		if err := wsjson.Write(ctx, conn, command{ID: "r", Op: "replay", From: from}); err != nil {
 			t.Fatal(err)
 		}
-		var reply struct{ ID, Error string }
-		if err := wsjson.Read(ctx, conn, &reply); err != nil || reply.ID != "r" || reply.Error != "" {
+		var reply struct {
+			ID            string
+			Error, Result json.RawMessage
+		}
+		if err := wsjson.Read(ctx, conn, &reply); err != nil || reply.ID != "r" || reply.Error != nil || string(reply.Result) != "null" {
 			t.Fatalf("replay reply %+v: %v", reply, err)
 		}
 	}
