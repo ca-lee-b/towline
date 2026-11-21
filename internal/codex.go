@@ -2,6 +2,7 @@ package towline
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -17,9 +18,14 @@ type command struct {
 	Text      string          `json:"text"`
 	TurnID    string          `json:"turnId"`
 	RequestID json.RawMessage `json:"requestId"`
-	Result    json.RawMessage `json:"result"`
+	Result    json.RawMessage `json:"result,omitempty"`
 	From      int             `json:"from"`
 }
+type commandOutcome struct {
+	digest [sha256.Size]byte
+	reply  object
+}
+
 type request struct {
 	command
 	reply chan object
@@ -46,6 +52,7 @@ type session struct {
 	log                     *journal
 	thread, turn, completed string
 	stopping                bool
+	outcomes                map[string]commandOutcome
 	pending                 map[string]bool
 	serial                  int
 	fatal                   error
@@ -238,6 +245,37 @@ func (s *session) handle(c command) (any, error) {
 	}
 }
 
+// The session records the outcome before attempting reply delivery.
+func (s *session) execute(c command) object {
+	var digest [sha256.Size]byte
+	mutating := c.Op == "send" || c.Op == "steer" || c.Op == "interrupt" || c.Op == "respond"
+	if mutating {
+		payload, err := json.Marshal(c)
+		if err != nil {
+			return object{"id": c.ID, "error": err.Error()}
+		}
+		digest = sha256.Sum256(payload)
+		if previous, ok := s.outcomes[c.ID]; ok {
+			if previous.digest != digest {
+				return object{"id": c.ID, "error": "command ID reused with different payload"}
+			}
+			return previous.reply
+		}
+	}
+	result, err := s.handle(c)
+	reply := object{"id": c.ID, "result": result}
+	if err != nil {
+		reply = object{"id": c.ID, "error": err.Error()}
+	}
+	if mutating {
+		if s.outcomes == nil {
+			s.outcomes = make(map[string]commandOutcome)
+		}
+		s.outcomes[c.ID] = commandOutcome{digest, reply}
+	}
+	return reply
+}
+
 // initializes the Codex protocol and processes commands and events in order
 func (s *session) run(commands <-chan request) error {
 	if _, err := s.call("initialize", object{"clientInfo": object{"name": "towline", "version": "1"}, "capabilities": object{"experimentalApi": true}}); err != nil {
@@ -257,13 +295,7 @@ func (s *session) run(commands <-chan request) error {
 				return err
 			}
 		case req := <-commands:
-			result, err := s.handle(req.command)
-			reply := object{"id": req.ID, "result": result}
-			if err != nil {
-				reply = object{"id": req.ID, "error": err.Error()}
-			}
-
-			req.reply <- reply
+			req.reply <- s.execute(req.command)
 			if s.fatal != nil {
 				return s.fatal
 			}

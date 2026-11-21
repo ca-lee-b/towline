@@ -30,7 +30,7 @@ Send one JSON object per WebSocket text frame. The first `send` opens a Codex th
 {"id":"1","op":"send","text":"Run the tests and summarize any failures."}
 ```
 
-A successful reply contains the same ID and a result. Errors carry an `error` string. Towline returns `busy` during an active turn, so queue additional sends in the controller. Retrying a command can execute it twice.
+A successful reply contains the same ID and a result. Errors carry an `error` string. Towline returns `busy` during an active turn, so queue additional sends in the controller. Use a fresh ID for each new `send`, `steer`, `interrupt`, or `respond`. If the reply is lost, resend the same command with the same ID, including after reconnect. Towline returns the original result or error. A changed payload under the same ID returns an error. Use a new ID to try again after `busy`. Towline keeps these outcomes in memory for the lifetime of its process. After a restart, the outcome of an earlier command may be unknown.
 
 | Operation | Purpose |
 | --- | --- |
