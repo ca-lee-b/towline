@@ -95,21 +95,21 @@ func serve(parent context.Context, conn *websocket.Conn, j *journal, commands ch
 			return ctx.Err()
 		case data := <-inbox:
 			var c command
-			reply := object{}
+			var reply commandReply
 			if err := json.Unmarshal(data, &c); err != nil || c.ID == "" {
-				reply = object{"id": c.ID, "error": "expected a JSON command with a string id"}
+				reply = errorReply(c.ID, "expected a JSON command with a string id")
 			} else if c.Op == "replay" {
 				// the next unwritten sequence is valid
 				// the reader will wait there for a new event
 				if c.From < 1 || c.From > j.next() {
-					reply = object{"id": c.ID, "error": "from outside log range"}
+					reply = errorReply(c.ID, "from outside log range")
 				} else {
 					cursor = c.From
-					reply = object{"id": c.ID, "result": nil}
+					reply = successReply(c.ID, nil)
 				}
 			} else {
 				// the buffered reply lets the session finish the command even if this connection drops
-				req := request{c, make(chan object, 1)}
+				req := request{c, make(chan commandReply, 1)}
 				select {
 				case commands <- req:
 				case <-ctx.Done():

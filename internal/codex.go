@@ -21,14 +21,30 @@ type command struct {
 	Result    json.RawMessage `json:"result,omitempty"`
 	From      int             `json:"from"`
 }
+
+type commandReply struct {
+	ID     string  `json:"id"`
+	Result *any    `json:"result,omitempty"`
+	Error  *string `json:"error,omitempty"`
+}
+
+func successReply(id string, result any) commandReply {
+	// A present result may encode as JSON null.
+	return commandReply{ID: id, Result: &result}
+}
+
+func errorReply(id, message string) commandReply {
+	return commandReply{ID: id, Error: &message}
+}
+
 type commandOutcome struct {
 	digest [sha256.Size]byte
-	reply  object
+	reply  commandReply
 }
 
 type request struct {
 	command
-	reply chan object
+	reply chan commandReply
 }
 type frame struct {
 	ID     json.RawMessage `json:"id"`
@@ -246,26 +262,26 @@ func (s *session) handle(c command) (any, error) {
 }
 
 // The session records the outcome before attempting reply delivery.
-func (s *session) execute(c command) object {
+func (s *session) execute(c command) commandReply {
 	var digest [sha256.Size]byte
 	mutating := c.Op == "send" || c.Op == "steer" || c.Op == "interrupt" || c.Op == "respond"
 	if mutating {
 		payload, err := json.Marshal(c)
 		if err != nil {
-			return object{"id": c.ID, "error": err.Error()}
+			return errorReply(c.ID, err.Error())
 		}
 		digest = sha256.Sum256(payload)
 		if previous, ok := s.outcomes[c.ID]; ok {
 			if previous.digest != digest {
-				return object{"id": c.ID, "error": "command ID reused with different payload"}
+				return errorReply(c.ID, "command ID reused with different payload")
 			}
 			return previous.reply
 		}
 	}
 	result, err := s.handle(c)
-	reply := object{"id": c.ID, "result": result}
+	reply := successReply(c.ID, result)
 	if err != nil {
-		reply = object{"id": c.ID, "error": err.Error()}
+		reply = errorReply(c.ID, err.Error())
 	}
 	if mutating {
 		if s.outcomes == nil {
