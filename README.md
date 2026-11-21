@@ -41,3 +41,7 @@ A successful reply contains the same ID and a result. Errors carry an `error` st
 | `prepare_shutdown` | Return `busy` during work or `ready_to_stop` when the sandbox can stop. |
 
 Event frames contain `seq` and `event`. Sequence numbers start at 1 for each Towline process. Reconnected controllers receive live events and can replay missed events from the last processed sequence plus one.
+
+## Live reconnect smoke test
+
+With Codex authenticated, run `TOWLINE_LIVE_TEST=1 go test -race ./internal -run '^TestLiveReconnect$' -count=1`. The test starts a local WebSocket controller, sends one short turn in a temporary directory, disconnects after the turn starts, and checks replay sequence continuity through successful completion of that same turn.
