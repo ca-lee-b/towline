@@ -15,7 +15,7 @@ type eventRecord struct {
 	Event json.RawMessage `json:"event"`
 }
 
-// Only offsets live in memory. The journal file holds the payloads.
+// only offsets live in memory, the journal file persists the payloads
 type journal struct {
 	mu      sync.Mutex
 	file    *os.File
@@ -24,52 +24,63 @@ type journal struct {
 	wake    chan struct{}
 }
 
+// opens and locks the journal, then recovers its event index
 func openJournal(path string) (*journal, error) {
-	file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0600)
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {
 		return nil, err
 	}
+
 	j := &journal{file: file, wake: make(chan struct{})}
-	// Hold an exclusive lock until close. The OS releases it on process exit.
+
+	// hold an exclusive lock until close, the OS will release it on process exit
 	err = lockJournal(j.file)
 	if err != nil {
 		j.file.Close()
 		return nil, fmt.Errorf("lock event journal: %w", err)
 	}
+
 	if err := j.recover(); err != nil {
 		j.file.Close()
 		return nil, err
 	}
+
 	return j, nil
 }
 
+// rebuilds the event index and removes an incomplete final record
 func (j *journal) recover() error {
 	reader := bufio.NewReader(j.file)
+
 	for {
 		line, err := reader.ReadBytes('\n')
 		if errors.Is(err, io.EOF) {
 			if len(line) > 0 {
-				// A crash can leave the final record without its newline.
+				// a crash can leave the final record without its newline
 				if err := j.file.Truncate(j.end); err != nil {
 					return err
 				}
 			}
-			// A complete record may have reached the page cache before a crash.
+
+			// a complete record may have reached the page cache before a crash
 			return j.file.Sync()
 		}
+
 		if err != nil {
 			return err
 		}
+
 		var record eventRecord
 		if err := json.Unmarshal(line, &record); err != nil || record.Seq != len(j.offsets)+1 || len(record.Event) == 0 {
 			return fmt.Errorf("invalid event journal record at byte %d", j.end)
 		}
+
 		j.offsets = append(j.offsets, j.end)
 		j.end += int64(len(line))
 	}
 }
 
-// assigns a sequence number, writes the event to disk, and wakes the reader
+// assigns a sequence number to an event, writes to disk, and wakes the reader to stream the update
 func (j *journal) append(event json.RawMessage) error {
 	j.mu.Lock()
 	defer j.mu.Unlock()
@@ -96,13 +107,15 @@ func (j *journal) append(event json.RawMessage) error {
 	return nil
 }
 
-// Observe the cursor and its wake channel under the same lock.
+// observe the cursor and its wake channel under the same lock
 func (j *journal) ready(cursor int, alwaysReady <-chan struct{}) <-chan struct{} {
 	j.mu.Lock()
 	defer j.mu.Unlock()
+
 	if cursor <= len(j.offsets) {
 		return alwaysReady
 	}
+
 	return j.wake
 }
 

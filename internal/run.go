@@ -19,9 +19,11 @@ func Run(parent context.Context, c Config) error {
 	if err != nil {
 		return fmt.Errorf("locate event journal: %w", err)
 	}
+
 	return run(parent, c, filepath.Join(root, "towline"))
 }
 
+// starts the session using the specified journal directory
 func run(parent context.Context, c Config, store string) error {
 	u, err := url.Parse(c.URL)
 	if err != nil || u.Host == "" || (u.Scheme != "ws" && u.Scheme != "wss") {
@@ -36,9 +38,10 @@ func run(parent context.Context, c Config, store string) error {
 	ctx, cancel := context.WithCancel(parent)
 	defer cancel()
 
-	if err := os.MkdirAll(store, 0700); err != nil {
+	if err := os.MkdirAll(store, 0o700); err != nil {
 		return fmt.Errorf("create event journal directory: %w", err)
 	}
+
 	j, err := openJournal(filepath.Join(store, "events.jsonl"))
 	if err != nil {
 		return fmt.Errorf("open event journal: %w", err)
