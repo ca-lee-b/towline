@@ -3,35 +3,48 @@
 package towline
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestJournalRecoversAfterPartialWrite(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "events.jsonl")
-	j, err := openJournal(path)
-	if err != nil {
-		t.Fatal(err)
-	}
+	const crashExit = 42
 	event := json.RawMessage(`{"method":"example"}`)
-	if err := j.append(event); err != nil {
-		j.file.Close()
-		t.Fatal(err)
+	if os.Getenv("TOWLINE_CRASH_WRITER") == "1" {
+		j, err := openJournal("events.jsonl")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := j.append(event); err != nil {
+			t.Fatal(err)
+		}
+		if other, err := openJournal("events.jsonl"); err == nil {
+			other.file.Close()
+			t.Fatal("second writer acquired the journal")
+		}
+		if _, err := j.file.WriteAt([]byte(`{"seq":2,"event":`), j.end); err != nil {
+			t.Fatal(err)
+		}
+		os.Exit(crashExit) // Skip cleanup with the journal lock still held.
 	}
-	if other, err := openJournal(path); err == nil {
-		other.file.Close()
-		j.file.Close()
-		t.Fatal("second writer acquired the journal")
+	dir := t.TempDir()
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestJournalRecoversAfterPartialWrite$")
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(), "TOWLINE_CRASH_WRITER=1")
+	output, err := cmd.CombinedOutput()
+	var exit *exec.ExitError
+	if !errors.As(err, &exit) || exit.ExitCode() != crashExit {
+		t.Fatalf("crash writer: %v: %s", err, output)
 	}
-	// Emulate a crash during the next record's write.
-	_, err = j.file.WriteAt([]byte(`{"seq":2,"event":`), j.end)
-	j.file.Close()
-	if err != nil {
-		t.Fatal(err)
-	}
-
+	path := filepath.Join(dir, "events.jsonl")
 	recovered, err := openJournal(path)
 	if err != nil {
 		t.Fatal(err)

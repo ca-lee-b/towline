@@ -53,3 +53,12 @@ Towline syncs each event before streaming it. On startup it discards an unfinish
 ## Live reconnect smoke test
 
 With Codex authenticated, run `TOWLINE_LIVE_TEST=1 go test -race ./internal -run '^TestLiveReconnect$' -count=1`. The test starts a local WebSocket controller, sends one short turn in a temporary directory, disconnects after the turn starts, and checks replay sequence continuity through successful completion of that same turn.
+
+## Benchmarks and recovery tests
+
+Run `go test -run '^$' -bench . -benchmem ./internal` on the filesystem you deploy to (set `TMPDIR` there on Unix). Both benchmarks use 1 KiB JSON events.
+
+- `BenchmarkJournalAppend` reports synced events per second, Go allocations per append, and bytes of offset-index capacity per stored event. Index capacity includes spare slots and covers only the journal’s in-memory index. For comparable index measurements, use a fixed event count because slice capacity grows in steps. Run `go test -run '^$' -bench '^BenchmarkJournalAppend$' -benchtime=1024x ./internal`.
+- `BenchmarkReplay` reports average time per replay request on an established loopback WebSocket, including the controller’s per-request timeout setup and cancellation, command send, acknowledgement, and decoding through the last sequence. The one-event case measures time to the first event. The 64-event case measures catch-up time with a warm journal. Allocation figures include both ends of the connection.
+
+Run `go test -race ./...` for the offline suite, including disconnect/replay and recovery after a writer exits abruptly with a partial record on disk.
