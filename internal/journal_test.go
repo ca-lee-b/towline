@@ -17,17 +17,17 @@ func TestJournalRecoversAfterPartialWrite(t *testing.T) {
 	}
 	event := json.RawMessage(`{"method":"example"}`)
 	if err := j.append(event); err != nil {
-		j.close()
+		j.file.Close()
 		t.Fatal(err)
 	}
 	if other, err := openJournal(path); err == nil {
-		other.close()
-		j.close()
+		other.file.Close()
+		j.file.Close()
 		t.Fatal("second writer acquired the journal")
 	}
 	// Emulate a crash during the next record's write.
 	_, err = j.file.WriteAt([]byte(`{"seq":2,"event":`), j.end)
-	j.close()
+	j.file.Close()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -36,7 +36,7 @@ func TestJournalRecoversAfterPartialWrite(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer recovered.close()
+	defer recovered.file.Close()
 	if got := recovered.next(); got != 2 {
 		t.Fatalf("next sequence = %d, want 2", got)
 	}
@@ -68,7 +68,7 @@ func TestJournalRejectsInvalidCompleteRecord(t *testing.T) {
 		t.Fatal(err)
 	}
 	if j, err := openJournal(path); err == nil {
-		j.close()
+		j.file.Close()
 		t.Fatal("accepted a skipped sequence")
 	}
 }

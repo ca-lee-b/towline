@@ -22,21 +22,14 @@ type journal struct {
 	offsets []int64
 	end     int64
 	wake    chan struct{}
-	durable bool
 }
 
 func openJournal(path string) (*journal, error) {
-	j := &journal{wake: make(chan struct{}), durable: path != ""}
-	var err error
-	if !j.durable {
-		j.file, err = os.CreateTemp("", "towline-*.jsonl")
-		return j, err
-	}
-
-	j.file, err = os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0600)
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0600)
 	if err != nil {
 		return nil, err
 	}
+	j := &journal{file: file, wake: make(chan struct{})}
 	// Hold an exclusive lock until close. The OS releases it on process exit.
 	err = lockJournal(j.file)
 	if err != nil {
@@ -48,13 +41,6 @@ func openJournal(path string) (*journal, error) {
 		return nil, err
 	}
 	return j, nil
-}
-
-func (j *journal) close() {
-	j.file.Close()
-	if !j.durable {
-		os.Remove(j.file.Name())
-	}
 }
 
 func (j *journal) recover() error {
@@ -97,10 +83,8 @@ func (j *journal) append(event json.RawMessage) error {
 	if _, err := j.file.WriteAt(data, j.end); err != nil {
 		return err
 	}
-	if j.durable {
-		if err := j.file.Sync(); err != nil {
-			return err
-		}
+	if err := j.file.Sync(); err != nil {
+		return err
 	}
 
 	j.offsets = append(j.offsets, j.end)

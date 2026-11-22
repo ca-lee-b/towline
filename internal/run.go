@@ -2,15 +2,38 @@ package towline
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"net/url"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 )
 
-type Config struct{ URL, Token, Codex, Dir, EventLog string }
+type Config struct{ URL, Token, Codex, Dir string }
+
+func eventLogPath(c Config) (string, error) {
+	root, err := os.UserConfigDir()
+	if err != nil {
+		return "", err
+	}
+	dir, err := filepath.Abs(c.Dir)
+	if err != nil {
+		return "", err
+	}
+	dir, err = filepath.EvalSymlinks(dir)
+	if err != nil {
+		return "", err
+	}
+	store := filepath.Join(root, "towline", "events")
+	if err := os.MkdirAll(store, 0700); err != nil {
+		return "", err
+	}
+	key := sha256.Sum256([]byte(c.URL + "\x00" + dir))
+	return filepath.Join(store, fmt.Sprintf("%x.jsonl", key)), nil
+}
 
 // this starts Codex and manages the Towline WebSocket connection and event log
 func Run(parent context.Context, c Config) error {
@@ -27,11 +50,15 @@ func Run(parent context.Context, c Config) error {
 	ctx, cancel := context.WithCancel(parent)
 	defer cancel()
 
-	j, err := openJournal(c.EventLog)
+	logPath, err := eventLogPath(c)
+	if err != nil {
+		return fmt.Errorf("locate event journal: %w", err)
+	}
+	j, err := openJournal(logPath)
 	if err != nil {
 		return fmt.Errorf("open event journal: %w", err)
 	}
-	defer j.close()
+	defer j.file.Close()
 
 	cmd := exec.CommandContext(ctx, path, "app-server", "--listen", "stdio://")
 	cmd.Dir = c.Dir

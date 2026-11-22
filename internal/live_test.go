@@ -33,11 +33,17 @@ func TestLiveReconnect(t *testing.T) {
 	}))
 	defer server.Close()
 	dir := t.TempDir()
+	config := Config{URL: "ws" + strings.TrimPrefix(server.URL, "http"), Codex: "codex", Dir: dir}
+	logPath, err := eventLogPath(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Remove(logPath) })
 	done := make(chan struct{})
 	var runErr error
 	go func() {
 		defer close(done)
-		runErr = Run(ctx, Config{URL: "ws" + strings.TrimPrefix(server.URL, "http"), Codex: "codex", Dir: dir})
+		runErr = Run(ctx, config)
 	}()
 	defer func() { cancel(); <-done }()
 	connect := func() *websocket.Conn {
