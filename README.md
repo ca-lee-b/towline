@@ -22,6 +22,8 @@ In the sandbox, install a Codex CLI that supports `app-server` and configure its
 
 You can also set the URL with `TOWLINE_ENDPOINT`. Set `TOWLINE_TOKEN` if the controller requires a bearer token. Towline looks for `codex` on `PATH` unless you supply `-codex /path/to/codex`.
 
+Towline writes readable connection and error logs to stderr. Add `-verbose` to see command reply metadata and event sequence numbers.
+
 ## Controller protocol
 
 Send one JSON object per WebSocket text frame. The first `send` opens a Codex thread. Later turns reuse it.
