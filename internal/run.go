@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 )
 
@@ -14,6 +15,16 @@ type Config struct{ URL, Token, Codex, Dir string }
 
 // this starts Codex and manages the Towline WebSocket connection and event log
 func Run(parent context.Context, c Config) error {
+	root, err := os.UserConfigDir()
+	if err != nil {
+		return fmt.Errorf("locate event journal: %w", err)
+	}
+
+	return run(parent, c, filepath.Join(root, "towline"))
+}
+
+// starts the session using the specified journal directory
+func run(parent context.Context, c Config, store string) error {
 	u, err := url.Parse(c.URL)
 	if err != nil || u.Host == "" || (u.Scheme != "ws" && u.Scheme != "wss") {
 		return fmt.Errorf("endpoint must be a ws or wss URL")
@@ -27,14 +38,15 @@ func Run(parent context.Context, c Config) error {
 	ctx, cancel := context.WithCancel(parent)
 	defer cancel()
 
-	file, err := os.CreateTemp("", "towline-*.jsonl")
-	if err != nil {
-		return err
+	if err := os.MkdirAll(store, 0o700); err != nil {
+		return fmt.Errorf("create event journal directory: %w", err)
 	}
-	defer os.Remove(file.Name())
-	defer file.Close()
 
-	j := &journal{file: file, wake: make(chan struct{}, 1)}
+	j, err := openJournal(filepath.Join(store, "events.jsonl"))
+	if err != nil {
+		return fmt.Errorf("open event journal: %w", err)
+	}
+	defer j.file.Close()
 
 	cmd := exec.CommandContext(ctx, path, "app-server", "--listen", "stdio://")
 	cmd.Dir = c.Dir

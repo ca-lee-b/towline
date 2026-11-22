@@ -51,7 +51,7 @@ func serve(parent context.Context, conn *websocket.Conn, j *journal, commands ch
 
 	conn.SetReadLimit(4 << 20) // 4 MiB
 
-	// start at the most recent event
+	// start with the next event appended to the journal
 	// a replay command always can move this connection's cursor to an earlier event
 	cursor := j.next()
 
@@ -85,12 +85,7 @@ func serve(parent context.Context, conn *websocket.Conn, j *journal, commands ch
 	for {
 		// when caught up, wait for the next append.
 		// while behind, the closed channel makes the
-		// next event immediately selectable alongside commands.
-		ready := j.wake
-		if cursor < j.next() {
-			ready = alwaysReady
-		}
-
+		// next event immediately selectable alongside commands
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
@@ -131,7 +126,7 @@ func serve(parent context.Context, conn *websocket.Conn, j *journal, commands ch
 			}
 			slog.Debug("Sent controller reply", "id", c.ID, "op", c.Op, "ok", reply.Error == nil)
 			continue
-		case <-ready:
+		case <-j.ready(cursor, alwaysReady):
 		}
 
 		// send one event per iteration so incoming commands can be handled during replay
