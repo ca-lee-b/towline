@@ -2,7 +2,6 @@ package towline
 
 import (
 	"context"
-	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"net/url"
@@ -14,29 +13,16 @@ import (
 
 type Config struct{ URL, Token, Codex, Dir string }
 
-func eventLogPath(c Config) (string, error) {
-	root, err := os.UserConfigDir()
-	if err != nil {
-		return "", err
-	}
-	dir, err := filepath.Abs(c.Dir)
-	if err != nil {
-		return "", err
-	}
-	dir, err = filepath.EvalSymlinks(dir)
-	if err != nil {
-		return "", err
-	}
-	store := filepath.Join(root, "towline", "events")
-	if err := os.MkdirAll(store, 0700); err != nil {
-		return "", err
-	}
-	key := sha256.Sum256([]byte(c.URL + "\x00" + dir))
-	return filepath.Join(store, fmt.Sprintf("%x.jsonl", key)), nil
-}
-
 // this starts Codex and manages the Towline WebSocket connection and event log
 func Run(parent context.Context, c Config) error {
+	root, err := os.UserConfigDir()
+	if err != nil {
+		return fmt.Errorf("locate event journal: %w", err)
+	}
+	return run(parent, c, filepath.Join(root, "towline"))
+}
+
+func run(parent context.Context, c Config, store string) error {
 	u, err := url.Parse(c.URL)
 	if err != nil || u.Host == "" || (u.Scheme != "ws" && u.Scheme != "wss") {
 		return fmt.Errorf("endpoint must be a ws or wss URL")
@@ -50,11 +36,10 @@ func Run(parent context.Context, c Config) error {
 	ctx, cancel := context.WithCancel(parent)
 	defer cancel()
 
-	logPath, err := eventLogPath(c)
-	if err != nil {
-		return fmt.Errorf("locate event journal: %w", err)
+	if err := os.MkdirAll(store, 0700); err != nil {
+		return fmt.Errorf("create event journal directory: %w", err)
 	}
-	j, err := openJournal(logPath)
+	j, err := openJournal(filepath.Join(store, "events.jsonl"))
 	if err != nil {
 		return fmt.Errorf("open event journal: %w", err)
 	}

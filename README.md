@@ -46,7 +46,7 @@ Event frames contain `seq` and `event`. Sequence numbers start at 1 for each str
 
 ### Replay after restart
 
-Towline uses the same disk journal for live events and replay. It stores journals under `towline/events` in the system’s per-user configuration directory, with one journal per endpoint URL and resolved working directory. Keep that directory on persistent storage. After restart, use the same endpoint and working directory, then send `replay` from the last processed sequence plus one. New events continue the existing sequence.
+Run one Towline per sandbox. Towline uses the same disk journal for live events and replay, at `towline/events.jsonl` under the sandbox user’s configuration directory. Keep that directory on persistent, sandbox-local storage. After restart, send `replay` from the last processed sequence plus one. New events continue the existing sequence even if the endpoint or working directory changes.
 
 Towline syncs each event before streaming it. On startup it discards an unfinished final record and fails if a complete record is invalid. Only one Towline process can use a journal at a time. The file grows with each event and can contain sensitive Codex output. A restart starts a fresh Codex session and clears cached command outcomes.
 
