@@ -32,7 +32,7 @@ Send one JSON object per WebSocket text frame. The first `send` opens a Codex th
 {"id":"1","op":"send","text":"Run the tests and summarize any failures."}
 ```
 
-A successful reply contains the same ID and a result. Errors carry an `error` string. Towline returns `busy` during an active turn, so queue additional sends in the controller. Use a fresh ID for each new `send`, `steer`, `interrupt`, or `respond`. If the reply is lost, resend the same command with the same ID, including after reconnect. Towline returns the original result or error. A changed payload under the same ID returns an error. Use a new ID to try again after `busy`. Towline keeps these outcomes in memory for the lifetime of its process. After a restart, the outcome of an earlier command may be unknown.
+A successful reply contains the same ID and a result. Errors carry an `error` string. Towline returns `busy` during an active turn, so queue additional sends in the controller. Use a fresh ID for each new `send`, `steer`, `interrupt`, or `respond`. If the reply is lost, resend the same command with the same ID, including after reconnect or restart. Towline returns the original result or error. A changed payload under the same ID returns an error. Use a new ID to try again after `busy`. Towline reserves the ID on disk before dispatch and saves the reply before sending it. If a crash interrupts those steps, retrying returns `command outcome unknown` and leaves the original command alone. A new ID is a new command and could repeat the action. Keep `commands.db` alongside the event journal for the lifetime of the sandbox. Commands from older versions had only an in-memory cache.
 
 | Operation | Purpose |
 | --- | --- |
@@ -48,7 +48,7 @@ Event frames contain `seq` and `event`. Sequence numbers start at 1 for each str
 
 Run one Towline per sandbox. Towline uses the same disk journal for live events and replay, at `towline/events.jsonl` under the sandbox user’s configuration directory. Keep that directory on persistent, sandbox-local storage. After restart, send `replay` from the last processed sequence plus one. New events continue the existing sequence even if the endpoint or working directory changes.
 
-Towline syncs each event before streaming it. On startup it discards an unfinished final record and fails if a complete record is invalid. Only one Towline process can use a journal at a time. The file grows with each event and can contain sensitive Codex output. A restart starts a fresh Codex session and clears cached command outcomes.
+Towline syncs each event before streaming it. On startup it discards an unfinished final record and fails if a complete record is invalid. Only one Towline process can use a journal at a time. The file grows with each event and can contain sensitive Codex output. A restart starts a fresh Codex session.
 
 ## Live reconnect smoke test
 

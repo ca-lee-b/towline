@@ -4,6 +4,7 @@
 import asyncio
 import json
 import sys
+import uuid
 
 from websockets.asyncio.server import serve
 
@@ -21,13 +22,14 @@ async def main() -> None:
         "Do not modify any files."
     )
 
+    command_id = str(uuid.uuid4())
     completed = asyncio.get_running_loop().create_future()
 
     async def handle(ws) -> None:
         if completed.done():
             return
         print(f"Towline connected. Prompt: {prompt}", flush=True)
-        await ws.send(json.dumps({"id": "basic-1", "op": "send", "text": prompt}))
+        await ws.send(json.dumps({"id": command_id, "op": "send", "text": prompt}))
         replied = False
         turn_completed = False
         async for message in ws:
@@ -40,7 +42,7 @@ async def main() -> None:
                 log_frame(f"[{frame['seq']}] {method}", event.get("params", {}))
                 if method == "turn/completed":
                     turn_completed = True
-            elif frame.get("id") == "basic-1":
+            elif frame.get("id") == command_id:
                 if frame.get("error"):
                     completed.set_exception(RuntimeError(frame["error"]))
                     return

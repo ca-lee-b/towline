@@ -2,7 +2,6 @@ package towline
 
 import (
 	"context"
-	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -37,11 +36,6 @@ func errorReply(id, message string) commandReply {
 	return commandReply{ID: id, Error: &message}
 }
 
-type commandOutcome struct {
-	digest [sha256.Size]byte
-	reply  commandReply
-}
-
 type request struct {
 	command
 	reply chan commandReply
@@ -68,7 +62,7 @@ type session struct {
 	log                     *journal
 	thread, turn, completed string
 	stopping                bool
-	outcomes                map[string]commandOutcome
+	commands                *commandStore
 	pending                 map[string]bool
 	serial                  int
 	fatal                   error
@@ -261,33 +255,33 @@ func (s *session) handle(c command) (any, error) {
 	}
 }
 
-// The session records the outcome before attempting reply delivery.
+// reserves mutating commands before dispatch and saves their replies before delivery
 func (s *session) execute(c command) commandReply {
-	var digest [sha256.Size]byte
 	mutating := c.Op == "send" || c.Op == "steer" || c.Op == "interrupt" || c.Op == "respond"
 	if mutating {
-		payload, err := json.Marshal(c)
+		prior, err := s.commands.reserve(c)
 		if err != nil {
-			return errorReply(c.ID, err.Error())
+			s.fatal = err
+			return errorReply(c.ID, "could not reserve command")
 		}
-		digest = sha256.Sum256(payload)
-		if previous, ok := s.outcomes[c.ID]; ok {
-			if previous.digest != digest {
-				return errorReply(c.ID, "command ID reused with different payload")
-			}
-			return previous.reply
+		if prior != nil {
+			return *prior
 		}
 	}
+
 	result, err := s.handle(c)
 	reply := successReply(c.ID, result)
 	if err != nil {
 		reply = errorReply(c.ID, err.Error())
 	}
 	if mutating {
-		if s.outcomes == nil {
-			s.outcomes = make(map[string]commandOutcome)
+		if s.fatal != nil {
+			return errorReply(c.ID, unknownOutcome)
 		}
-		s.outcomes[c.ID] = commandOutcome{digest, reply}
+		if err := s.commands.finish(reply); err != nil {
+			s.fatal = err
+			return errorReply(c.ID, unknownOutcome)
+		}
 	}
 	return reply
 }

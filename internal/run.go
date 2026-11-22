@@ -48,6 +48,12 @@ func run(parent context.Context, c Config, store string) error {
 	}
 	defer j.file.Close()
 
+	commandLog, err := openCommandStore(filepath.Join(store, "commands.db"))
+	if err != nil {
+		return fmt.Errorf("open command store: %w", err)
+	}
+	defer commandLog.db.Close()
+
 	cmd := exec.CommandContext(ctx, path, "app-server", "--listen", "stdio://")
 	cmd.Dir = c.Dir
 	cmd.Stderr = os.Stderr
@@ -83,11 +89,12 @@ func run(parent context.Context, c Config, store string) error {
 	}()
 
 	s := session{
-		ctx:     ctx,
-		stdin:   json.NewEncoder(stdin),
-		stdout:  frames,
-		log:     j,
-		pending: make(map[string]bool),
+		commands: commandLog,
+		ctx:      ctx,
+		stdin:    json.NewEncoder(stdin),
+		stdout:   frames,
+		log:      j,
+		pending:  make(map[string]bool),
 	}
 	err = s.run(commands)
 	cancel()
