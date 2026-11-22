@@ -3,7 +3,7 @@ package towline
 import (
 	"context"
 	"encoding/json"
-	"log"
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -23,13 +23,14 @@ func connect(ctx context.Context, c Config, j *journal, commands chan<- request)
 		conn, _, err := websocket.Dial(ctx, c.URL, &websocket.DialOptions{HTTPHeader: header})
 		if err == nil {
 			delay = time.Second
+			slog.Info("Controller connected")
 			err = serve(ctx, conn, j, commands)
 		}
 
 		if ctx.Err() != nil {
 			return
 		}
-		log.Printf("endpoint disconnected (%T), retrying in %s", err, delay)
+		slog.Warn("Controller unavailable, retrying", "retry_in", delay)
 
 		select {
 		case <-ctx.Done():
@@ -128,6 +129,7 @@ func serve(parent context.Context, conn *websocket.Conn, j *journal, commands ch
 			if err = write(encoded); err != nil {
 				return err
 			}
+			slog.Debug("Sent controller reply", "id", c.ID, "op", c.Op, "ok", reply.Error == nil)
 			continue
 		case <-ready:
 		}
@@ -141,6 +143,7 @@ func serve(parent context.Context, conn *websocket.Conn, j *journal, commands ch
 			if err = write(data); err != nil {
 				return err
 			}
+			slog.Debug("Sent Codex event", "seq", cursor)
 			cursor++
 		}
 	}
