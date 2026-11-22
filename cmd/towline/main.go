@@ -18,6 +18,7 @@ func main() {
 	flag.StringVar(&c.URL, "endpoint", os.Getenv("TOWLINE_ENDPOINT"), "WebSocket endpoint")
 	flag.StringVar(&c.Codex, "codex", "codex", "Codex executable")
 	flag.StringVar(&c.Dir, "dir", ".", "Codex working directory")
+	flag.StringVar(&c.EventLog, "event-log", "", "file for replay across Towline restarts")
 	flag.BoolVar(&verbose, "verbose", false, "log command and event metadata")
 	flag.Parse()
 

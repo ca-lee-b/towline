@@ -86,11 +86,6 @@ func serve(parent context.Context, conn *websocket.Conn, j *journal, commands ch
 		// when caught up, wait for the next append.
 		// while behind, the closed channel makes the
 		// next event immediately selectable alongside commands.
-		ready := j.wake
-		if cursor < j.next() {
-			ready = alwaysReady
-		}
-
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
@@ -131,7 +126,7 @@ func serve(parent context.Context, conn *websocket.Conn, j *journal, commands ch
 			}
 			slog.Debug("Sent controller reply", "id", c.ID, "op", c.Op, "ok", reply.Error == nil)
 			continue
-		case <-ready:
+		case <-j.ready(cursor, alwaysReady):
 		}
 
 		// send one event per iteration so incoming commands can be handled during replay

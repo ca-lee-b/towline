@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"strings"
 	"testing"
 	"time"
@@ -15,12 +14,11 @@ import (
 )
 
 func TestReplayFollowsEventsAppendedWhileDisconnected(t *testing.T) {
-	f, err := os.CreateTemp(t.TempDir(), "events")
+	j, err := openJournal("")
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer f.Close()
-	j := &journal{file: f, wake: make(chan struct{}, 1)}
+	defer j.close()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

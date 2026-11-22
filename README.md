@@ -42,7 +42,13 @@ A successful reply contains the same ID and a result. Errors carry an `error` st
 | `replay` | Resume events at sequence `from` (inclusive), then follow live events. |
 | `prepare_shutdown` | Return `busy` during work or `ready_to_stop` when the sandbox can stop. |
 
-Event frames contain `seq` and `event`. Sequence numbers start at 1 for each Towline process. Reconnected controllers receive live events and can replay missed events from the last processed sequence plus one.
+Event frames contain `seq` and `event`. Reconnected controllers receive live events and can replay missed events from the last processed sequence plus one. By default, sequence numbers start at 1 for each Towline process.
+
+### Replay after restart
+
+Set `-event-log /persistent/sandbox-123.jsonl` to keep events across Towline crashes and restarts. Use a separate file per controller stream on a persistent local filesystem. Restart with the same path and have the controller send `replay` from its last processed sequence plus one. New events continue the existing sequence.
+
+Towline syncs each event before streaming it. On startup it discards an unfinished final record and fails if a complete record is invalid. Only one Towline process can use a journal at a time. The file grows with each event and can contain sensitive Codex output. A restart starts a fresh Codex session and clears cached command outcomes.
 
 ## Live reconnect smoke test
 

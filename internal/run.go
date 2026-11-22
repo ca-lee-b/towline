@@ -10,7 +10,7 @@ import (
 	"strings"
 )
 
-type Config struct{ URL, Token, Codex, Dir string }
+type Config struct{ URL, Token, Codex, Dir, EventLog string }
 
 // this starts Codex and manages the Towline WebSocket connection and event log
 func Run(parent context.Context, c Config) error {
@@ -27,14 +27,11 @@ func Run(parent context.Context, c Config) error {
 	ctx, cancel := context.WithCancel(parent)
 	defer cancel()
 
-	file, err := os.CreateTemp("", "towline-*.jsonl")
+	j, err := openJournal(c.EventLog)
 	if err != nil {
-		return err
+		return fmt.Errorf("open event journal: %w", err)
 	}
-	defer os.Remove(file.Name())
-	defer file.Close()
-
-	j := &journal{file: file, wake: make(chan struct{}, 1)}
+	defer j.close()
 
 	cmd := exec.CommandContext(ctx, path, "app-server", "--listen", "stdio://")
 	cmd.Dir = c.Dir
