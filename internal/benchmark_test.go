@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -28,17 +29,57 @@ func benchmarkJournal(b *testing.B) (*journal, json.RawMessage) {
 }
 
 func BenchmarkJournalAppend(b *testing.B) {
-	j, event := benchmarkJournal(b)
-	b.ReportAllocs()
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		if err := j.append(event); err != nil {
-			b.Fatal(err)
-		}
+	for _, mode := range []string{"journal", "raw_sync"} {
+		b.Run(mode, func(b *testing.B) {
+			j, event := benchmarkJournal(b)
+			latencies := make([]time.Duration, b.N)
+			appendOne := func(_ int) error { return j.append(event) }
+			if mode == "raw_sync" {
+				// One record per sequence width keeps writes the same size as the journal.
+				var records [][]byte
+				for seq := 1; ; seq *= 10 {
+					data, err := json.Marshal(eventRecord{seq, event})
+					if err != nil {
+						b.Fatal(err)
+					}
+					records = append(records, append(data, '\n'))
+					if seq > b.N/10 {
+						break
+					}
+				}
+				var offset int64
+				var width int
+				nextWidth := 10
+				appendOne = func(seq int) error {
+					if seq == nextWidth {
+						width++
+						nextWidth *= 10
+					}
+					data := records[width]
+					if _, err := j.file.WriteAt(data, offset); err != nil {
+						return err
+					}
+					offset += int64(len(data))
+					return j.file.Sync()
+				}
+			}
+			b.ReportAllocs()
+			b.ResetTimer()
+			for i := range latencies {
+				start := time.Now()
+				err := appendOne(i + 1)
+				latencies[i] = time.Since(start)
+				if err != nil {
+					b.Fatal(err)
+				}
+			}
+			b.StopTimer()
+			slices.Sort(latencies)
+			b.ReportMetric(float64(latencies[(b.N-1)/2]), "p50-ns/op")
+			b.ReportMetric(float64(latencies[b.N-1-b.N/100]), "p99-ns/op")
+			b.ReportMetric(float64(latencies[b.N-1]), "max-ns/op")
+		})
 	}
-	b.StopTimer()
-	b.ReportMetric(float64(b.N)/b.Elapsed().Seconds(), "events/s")
-	b.ReportMetric(float64(cap(j.offsets))*8/float64(b.N), "index-B/event")
 }
 
 func BenchmarkReplay(b *testing.B) {
