@@ -8,7 +8,7 @@ import (
 
 func TestRetryReturnsOriginalOutcome(t *testing.T) {
 	var writes bytes.Buffer
-	s := session{stdin: json.NewEncoder(&writes), pending: map[string]bool{"1": true}}
+	s := session{adapter: &codexAdapter{agentIO: &agentIO{stdin: json.NewEncoder(&writes)}, pending: map[string]bool{"1": true}}}
 	cmd := command{ID: "answer", Op: "respond", RequestID: json.RawMessage("1"), Result: json.RawMessage("true")}
 	first := s.execute(cmd)
 	if first.Error != nil || writes.Len() == 0 {
@@ -27,7 +27,7 @@ func TestRetryReturnsOriginalOutcome(t *testing.T) {
 func TestRetryDistinguishesMissingAndNullResult(t *testing.T) {
 	for _, firstNull := range []bool{false, true} {
 		var writes bytes.Buffer
-		s := session{stdin: json.NewEncoder(&writes), pending: map[string]bool{"1": true}}
+		s := session{adapter: &codexAdapter{agentIO: &agentIO{stdin: json.NewEncoder(&writes)}, pending: map[string]bool{"1": true}}}
 		c := command{ID: "answer", Op: "respond", RequestID: json.RawMessage("1")}
 		if firstNull {
 			c.Result = json.RawMessage("null")

@@ -1,10 +1,10 @@
 # Towline
 
-Towline runs Codex inside a sandbox and connects it to your controller over an outbound WebSocket. The controller sends commands and receives Codex events. If the connection drops, Codex keeps running while Towline reconnects.
+Towline runs Codex or Claude Code inside a sandbox and connects the agent to your controller over an outbound WebSocket. If the connection drops, the agent keeps running while Towline reconnects.
 
 ## Motivation
 
-As cloud agents/sandboxes are created, users need a way to follow its progress through network interruptions. Towline provides that connection, keeping the Codex session alive and making missed events available for replay. It allows an easy way to stream Codex events.
+As cloud agents/sandboxes are created, users need a way to follow its progress through network interruptions. Towline provides that connection, keeping the agent session alive and making missed events available for replay.
 
 ## Usage
 
@@ -22,11 +22,17 @@ In the sandbox, install a Codex CLI that supports `app-server` and configure its
 
 You can also set the URL with `TOWLINE_ENDPOINT`. Set `TOWLINE_TOKEN` if the controller requires a bearer token. Towline looks for `codex` on `PATH` unless you supply `-codex /path/to/codex`.
 
+To run Claude Code, install and authenticate the Claude CLI in the sandbox, then select it at startup. Supply `-claude /path/to/claude` to override the executable.
+
+```sh
+./bin/towline -agent claude -endpoint wss://controller.example.com/sandboxes/123 -dir /workspace
+```
+
 Towline writes readable connection and error logs to stderr. Add `-verbose` to see command reply metadata and event sequence numbers.
 
 ## Controller protocol
 
-Send one JSON object per WebSocket text frame. The first `send` opens a Codex thread. Later turns reuse it.
+Send one JSON object per WebSocket text frame. Each process runs one agent. Later turns share the same conversation.
 
 ```json
 {"id":"1","op":"send","text":"Run the tests and summarize any failures."}
@@ -36,19 +42,26 @@ A successful reply contains the same ID and a result. Errors carry an `error` st
 
 | Operation | Purpose |
 | --- | --- |
+| `capabilities` | List supported agent operations in `result.operations`. |
 | `send` | Start a turn with `text`. Returns `threadId` and `turnId`. |
 | `steer` / `interrupt` | Add `text` to an active turn or interrupt it using its `turnId`. |
-| `respond` | Answer a Codex request with its `requestId` and `result`. |
+| `respond` | Answer an agent request with its `requestId` and `result`. |
 | `replay` | Resume events at sequence `from` (inclusive), then follow live events. |
 | `prepare_shutdown` | Return `busy` during work or `ready_to_stop` when the sandbox can stop. |
 
 Event frames contain `seq` and `event`. Sequence numbers start at 1 for each stream. Reconnected controllers receive live events and can replay missed events from the last processed sequence plus one.
 
+Claude supports `send`, `interrupt`, and `respond`. For `respond`, copy the string `request_id` from Claude’s `can_use_tool` request into `requestId`. An approval uses `{"behavior":"allow","updatedInput":{...}}` with the approved tool arguments. A denial uses `{"behavior":"deny","message":"reason"}`. The agent executes its own tools.
+
+By default Codex streams its existing app-server events. Claude streams objects with `agent: "claude"`, `threadId`, `turnId`, and the native stream-JSON frame in `message`. Its `result` message ends a turn, including failures.
+
+Use `-events common` at startup for a smaller shared event format. Each event has `type`, `threadId`, and `turnId`. The types are `turn.started`, `text` (append the `text` field), `input.requested` (includes `requestId` and the native `request`), `input.resolved` (dismiss the prompt with this `requestId`), and `turn.finished` (includes `status`). Codex emits text deltas and Claude emits complete text blocks. The journal stores the selected format, so replay preserves the format in use when each event was recorded.
+
 ### Replay after restart
 
 Run one Towline per sandbox. Towline uses the same disk journal for live events and replay, at `towline/events.jsonl` under the sandbox user’s configuration directory. Keep that directory on persistent, sandbox-local storage. After restart, send `replay` from the last processed sequence plus one. New events continue the existing sequence even if the endpoint or working directory changes.
 
-Towline syncs each event before streaming it. On startup it discards an unfinished final record and fails if a complete record is invalid. Only one Towline process can use a journal at a time. The file grows with each event and can contain sensitive Codex output. A restart starts a fresh Codex session and clears cached command outcomes.
+Towline syncs each event before streaming it. On startup it discards an unfinished final record and fails if a complete record is invalid. Only one Towline process can use a journal at a time. The file grows with each event and can contain sensitive agent output. A restart starts a fresh agent session and clears cached command outcomes.
 
 ## Benchmarks and recovery tests
 

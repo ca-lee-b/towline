@@ -138,7 +138,7 @@ func serve(parent context.Context, conn *websocket.Conn, j *journal, commands ch
 			if err = write(data); err != nil {
 				return err
 			}
-			slog.Debug("Sent Codex event", "seq", cursor)
+			slog.Debug("Sent agent event", "seq", cursor)
 			cursor++
 		}
 	}
