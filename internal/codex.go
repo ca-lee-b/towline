@@ -52,7 +52,7 @@ func (s *codexAdapter) decode(in incoming) (frame, error) {
 		return f, nil
 	}
 
-	if err := s.record(f, in.raw); err != nil {
+	if err := s.log.append(in.raw); err != nil {
 		return f, err
 	}
 

@@ -62,7 +62,6 @@ type agentIO struct {
 	stdout <-chan incoming
 	log    *journal
 	fatal  error
-	common bool
 }
 
 type session struct {

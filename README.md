@@ -53,9 +53,7 @@ Event frames contain `seq` and `event`. Sequence numbers start at 1 for each str
 
 Claude supports `send`, `interrupt`, and `respond`. For `respond`, copy the string `request_id` from Claude’s `can_use_tool` request into `requestId`. An approval uses `{"behavior":"allow","updatedInput":{...}}` with the approved tool arguments. A denial uses `{"behavior":"deny","message":"reason"}`. The agent executes its own tools.
 
-By default Codex streams its existing app-server events. Claude streams objects with `agent: "claude"`, `threadId`, `turnId`, and the native stream-JSON frame in `message`. Its `result` message ends a turn, including failures.
-
-Use `-events common` at startup for a smaller shared event format. Each event has `type`, `threadId`, and `turnId`. The types are `turn.started`, `text` (append the `text` field), `input.requested` (includes `requestId` and the native `request`), `input.resolved` (dismiss the prompt with this `requestId`), and `turn.finished` (includes `status`). Codex emits text deltas and Claude emits complete text blocks. The journal stores the selected format, so replay preserves the format in use when each event was recorded.
+Codex streams its existing app-server events. Claude streams objects with `agent: "claude"`, `threadId`, `turnId`, and the native stream-JSON frame in `message`. Its `result` message ends a turn, including failures.
 
 ### Replay after restart
 

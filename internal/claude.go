@@ -49,7 +49,11 @@ func (s *claudeAdapter) decode(in incoming) (claudeFrame, error) {
 	if f.Type == "control_response" {
 		return f, nil
 	}
-	if err := s.record(f, in.raw); err != nil {
+	event, err := json.Marshal(object{"agent": "claude", "threadId": s.thread, "turnId": s.turn, "message": in.raw})
+	if err != nil {
+		return f, err
+	}
+	if err := s.log.append(event); err != nil {
 		return f, err
 	}
 	switch f.Type {
@@ -98,12 +102,6 @@ func (s *claudeAdapter) handle(c command) (any, error) {
 			return nil, err
 		}
 		s.turn = id
-		if s.common {
-			if err := s.logCommon("turn.started", s.thread, id, nil); err != nil {
-				s.fatal = err
-				return nil, err
-			}
-		}
 		return object{"threadId": s.thread, "turnId": id}, nil
 	case "respond":
 		var id string

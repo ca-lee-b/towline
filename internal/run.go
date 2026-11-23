@@ -11,7 +11,7 @@ import (
 	"strings"
 )
 
-type Config struct{ URL, Token, Agent, Claude, Codex, Dir, Events string }
+type Config struct{ URL, Token, Agent, Claude, Codex, Dir string }
 
 // this starts the selected agent and manages the Towline WebSocket connection and event log
 func Run(parent context.Context, c Config) error {
@@ -33,10 +33,7 @@ func run(parent context.Context, c Config, store string) error {
 	binary := c.Codex
 	args := []string{"app-server", "--listen", "stdio://"}
 	var agent adapter
-	if c.Events != "" && c.Events != "native" && c.Events != "common" {
-		return fmt.Errorf("unknown event format %q (choose native or common)", c.Events)
-	}
-	pipes := &agentIO{common: c.Events == "common"}
+	pipes := &agentIO{}
 	switch c.Agent {
 	case "", "codex":
 		if binary == "" {

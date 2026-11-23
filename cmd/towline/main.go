@@ -16,7 +16,6 @@ func main() {
 	var verbose bool
 
 	flag.StringVar(&c.URL, "endpoint", os.Getenv("TOWLINE_ENDPOINT"), "WebSocket endpoint")
-	flag.StringVar(&c.Events, "events", "native", "Journal event format (native or common)")
 	flag.StringVar(&c.Agent, "agent", "codex", "Coding agent (codex or claude)")
 	flag.StringVar(&c.Claude, "claude", "claude", "Claude Code executable")
 	flag.StringVar(&c.Codex, "codex", "codex", "Codex executable")
