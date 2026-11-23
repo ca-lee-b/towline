@@ -1,11 +1,12 @@
 package towline
 
 import (
-	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
+
+	"github.com/google/uuid"
 )
 
 type claudeAdapter struct {
@@ -13,16 +14,6 @@ type claudeAdapter struct {
 	thread, turn string
 	pending      map[string]bool
 	stopping     bool
-}
-
-func newUUID() (string, error) {
-	var b [16]byte
-	if _, err := rand.Read(b[:]); err != nil {
-		return "", err
-	}
-	b[6] = b[6]&15 | 64
-	b[8] = b[8]&63 | 128
-	return fmt.Sprintf("%x-%x-%x-%x-%x", b[:4], b[4:6], b[6:8], b[8:10], b[10:]), nil
 }
 
 func (*claudeAdapter) initialize() error    { return nil }
@@ -93,7 +84,7 @@ func (s *claudeAdapter) handle(c command) (any, error) {
 		if s.turn != "" {
 			return nil, errors.New("busy")
 		}
-		id, err := newUUID()
+		id, err := uuid.NewRandom()
 		if err != nil {
 			return nil, err
 		}
@@ -101,8 +92,8 @@ func (s *claudeAdapter) handle(c command) (any, error) {
 		if err != nil {
 			return nil, err
 		}
-		s.turn = id
-		return object{"threadId": s.thread, "turnId": id}, nil
+		s.turn = id.String()
+		return object{"threadId": s.thread, "turnId": s.turn}, nil
 	case "respond":
 		var id string
 		if json.Unmarshal(c.RequestID, &id) != nil || !s.pending[id] {
@@ -134,7 +125,7 @@ func (s *claudeAdapter) handle(c command) (any, error) {
 }
 
 func (s *claudeAdapter) interrupt() error {
-	id, err := newUUID()
+	id, err := uuid.NewRandom()
 	if err != nil {
 		return err
 	}
@@ -151,7 +142,7 @@ func (s *claudeAdapter) interrupt() error {
 				s.fatal = err
 				return err
 			}
-			if f.Type == "control_response" && f.Response.RequestID == id {
+			if f.Type == "control_response" && f.Response.RequestID == id.String() {
 				if f.Response.Subtype != "success" {
 					return fmt.Errorf("Claude interrupt failed: %s", f.Response.Error)
 				}

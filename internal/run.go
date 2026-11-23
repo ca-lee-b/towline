@@ -9,6 +9,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/google/uuid"
 )
 
 type Config struct{ URL, Token, Agent, Claude, Codex, Dir string }
@@ -45,12 +47,12 @@ func run(parent context.Context, c Config, store string) error {
 		if binary == "" {
 			binary = "claude"
 		}
-		id, err := newUUID()
+		id, err := uuid.NewRandom()
 		if err != nil {
 			return err
 		}
-		args = []string{"-p", "--verbose", "--input-format", "stream-json", "--output-format", "stream-json", "--permission-prompt-tool", "stdio", "--session-id", id}
-		agent = &claudeAdapter{agentIO: pipes, thread: id, pending: make(map[string]bool)}
+		args = []string{"-p", "--verbose", "--input-format", "stream-json", "--output-format", "stream-json", "--permission-prompt-tool", "stdio", "--session-id", id.String()}
+		agent = &claudeAdapter{agentIO: pipes, thread: id.String(), pending: make(map[string]bool)}
 	default:
 		return fmt.Errorf("unknown agent %q (choose codex or claude)", c.Agent)
 	}
