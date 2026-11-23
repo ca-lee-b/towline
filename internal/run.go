@@ -9,11 +9,13 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/google/uuid"
 )
 
-type Config struct{ URL, Token, Codex, Dir string }
+type Config struct{ URL, Token, Agent, Claude, Codex, Dir string }
 
-// this starts Codex and manages the Towline WebSocket connection and event log
+// this starts the selected agent and manages the Towline WebSocket connection and event log
 func Run(parent context.Context, c Config) error {
 	root, err := os.UserConfigDir()
 	if err != nil {
@@ -30,9 +32,33 @@ func run(parent context.Context, c Config, store string) error {
 		return fmt.Errorf("endpoint must be a ws or wss URL")
 	}
 
-	path, err := exec.LookPath(c.Codex)
+	binary := c.Codex
+	args := []string{"app-server", "--listen", "stdio://"}
+	var agent adapter
+	pipes := &agentIO{}
+	switch c.Agent {
+	case "", "codex":
+		if binary == "" {
+			binary = "codex"
+		}
+		agent = &codexAdapter{agentIO: pipes, pending: make(map[string]bool)}
+	case "claude":
+		binary = c.Claude
+		if binary == "" {
+			binary = "claude"
+		}
+		id, err := uuid.NewRandom()
+		if err != nil {
+			return err
+		}
+		args = []string{"-p", "--verbose", "--input-format", "stream-json", "--output-format", "stream-json", "--permission-prompt-tool", "stdio", "--session-id", id.String()}
+		agent = &claudeAdapter{agentIO: pipes, thread: id.String(), pending: make(map[string]bool)}
+	default:
+		return fmt.Errorf("unknown agent %q (choose codex or claude)", c.Agent)
+	}
+	path, err := exec.LookPath(binary)
 	if err != nil {
-		return fmt.Errorf("install Codex before starting Towline: %w", err)
+		return fmt.Errorf("locate agent executable %q: %w", binary, err)
 	}
 
 	ctx, cancel := context.WithCancel(parent)
@@ -48,7 +74,7 @@ func run(parent context.Context, c Config, store string) error {
 	}
 	defer j.file.Close()
 
-	cmd := exec.CommandContext(ctx, path, "app-server", "--listen", "stdio://")
+	cmd := exec.CommandContext(ctx, path, args...)
 	cmd.Dir = c.Dir
 	cmd.Stderr = os.Stderr
 
@@ -73,7 +99,7 @@ func run(parent context.Context, c Config, store string) error {
 	}
 
 	frames := make(chan incoming)
-	go readCodex(ctx, stdout, frames)
+	go readAgent(ctx, stdout, frames)
 
 	commands := make(chan request)
 	done := make(chan struct{})
@@ -82,13 +108,8 @@ func run(parent context.Context, c Config, store string) error {
 		connect(ctx, c, j, commands)
 	}()
 
-	s := session{
-		ctx:     ctx,
-		stdin:   json.NewEncoder(stdin),
-		stdout:  frames,
-		log:     j,
-		pending: make(map[string]bool),
-	}
+	pipes.ctx, pipes.stdin, pipes.stdout, pipes.log = ctx, json.NewEncoder(stdin), frames, j
+	s := session{agentIO: pipes, adapter: agent}
 	err = s.run(commands)
 	cancel()
 	stdin.Close()

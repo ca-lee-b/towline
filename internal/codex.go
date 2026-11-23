@@ -1,51 +1,12 @@
 package towline
 
 import (
-	"context"
-	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"strings"
 )
 
-type object = map[string]any
-
-type command struct {
-	ID        string          `json:"id"`
-	Op        string          `json:"op"`
-	Text      string          `json:"text"`
-	TurnID    string          `json:"turnId"`
-	RequestID json.RawMessage `json:"requestId"`
-	Result    json.RawMessage `json:"result,omitempty"`
-	From      int             `json:"from"`
-}
-
-type commandReply struct {
-	ID     string  `json:"id"`
-	Result *any    `json:"result,omitempty"`
-	Error  *string `json:"error,omitempty"`
-}
-
-func successReply(id string, result any) commandReply {
-	// A present result may encode as JSON null.
-	return commandReply{ID: id, Result: &result}
-}
-
-func errorReply(id, message string) commandReply {
-	return commandReply{ID: id, Error: &message}
-}
-
-type commandOutcome struct {
-	digest [sha256.Size]byte
-	reply  commandReply
-}
-
-type request struct {
-	command
-	reply chan commandReply
-}
 type frame struct {
 	ID     json.RawMessage `json:"id"`
 	Method string          `json:"method"`
@@ -55,27 +16,19 @@ type frame struct {
 		Message string `json:"message"`
 	} `json:"error"`
 }
-type incoming struct {
-	raw json.RawMessage
-	err error
-}
-
-// one goroutine owns Codex state and consumes stdout in protocol order
-type session struct {
-	ctx                     context.Context
-	stdin                   *json.Encoder
-	stdout                  <-chan incoming
-	log                     *journal
+type codexAdapter struct {
+	*agentIO
 	thread, turn, completed string
 	stopping                bool
-	outcomes                map[string]commandOutcome
 	pending                 map[string]bool
 	serial                  int
-	fatal                   error
 }
 
+func (*codexAdapter) operations() []string      { return []string{"send", "steer", "interrupt", "respond"} }
+func (s *codexAdapter) event(in incoming) error { _, err := s.decode(in); return err }
+
 // waits for the next Codex frame or session cancellation
-func (s *session) receive() (frame, error) {
+func (s *codexAdapter) receive() (frame, error) {
 	select {
 	case <-s.ctx.Done():
 		return frame{}, s.ctx.Err()
@@ -85,7 +38,7 @@ func (s *session) receive() (frame, error) {
 }
 
 // parses a Codex frame, logs events, and tracks active turns and pending requests
-func (s *session) decode(in incoming) (frame, error) {
+func (s *codexAdapter) decode(in incoming) (frame, error) {
 	var f frame
 	if in.err != nil {
 		return f, in.err
@@ -137,17 +90,8 @@ func (s *session) decode(in incoming) (frame, error) {
 	return f, nil
 }
 
-// helper to send one JSON message to Codex over stdin
-func (s *session) write(v object) error {
-	if err := s.stdin.Encode(v); err != nil {
-		s.fatal = err
-		return err
-	}
-	return nil
-}
-
 // sends a Codex request and processes events until its reply arrives
-func (s *session) call(method string, params object) (json.RawMessage, error) {
+func (s *codexAdapter) call(method string, params object) (json.RawMessage, error) {
 	s.serial++
 	id := fmt.Sprint(s.serial)
 	if err := s.write(object{"id": s.serial, "method": method, "params": params}); err != nil {
@@ -175,7 +119,7 @@ func (s *session) call(method string, params object) (json.RawMessage, error) {
 }
 
 // executes one endpoint command against the current session
-func (s *session) handle(c command) (any, error) {
+func (s *codexAdapter) handle(c command) (any, error) {
 	switch c.Op {
 	case "prepare_shutdown":
 		if s.turn != "" || len(s.pending) > 0 {
@@ -261,39 +205,8 @@ func (s *session) handle(c command) (any, error) {
 	}
 }
 
-// The session records the outcome before attempting reply delivery.
-func (s *session) execute(c command) commandReply {
-	var digest [sha256.Size]byte
-	mutating := c.Op == "send" || c.Op == "steer" || c.Op == "interrupt" || c.Op == "respond"
-	if mutating {
-		payload, err := json.Marshal(c)
-		if err != nil {
-			return errorReply(c.ID, err.Error())
-		}
-		digest = sha256.Sum256(payload)
-		if previous, ok := s.outcomes[c.ID]; ok {
-			if previous.digest != digest {
-				return errorReply(c.ID, "command ID reused with different payload")
-			}
-			return previous.reply
-		}
-	}
-	result, err := s.handle(c)
-	reply := successReply(c.ID, result)
-	if err != nil {
-		reply = errorReply(c.ID, err.Error())
-	}
-	if mutating {
-		if s.outcomes == nil {
-			s.outcomes = make(map[string]commandOutcome)
-		}
-		s.outcomes[c.ID] = commandOutcome{digest, reply}
-	}
-	return reply
-}
-
 // initializes the Codex protocol and processes commands and events in order
-func (s *session) run(commands <-chan request) error {
+func (s *codexAdapter) initialize() error {
 	if _, err := s.call("initialize", object{"clientInfo": object{"name": "towline", "version": "1"}, "capabilities": object{"experimentalApi": true}}); err != nil {
 		return err
 	}
@@ -302,36 +215,5 @@ func (s *session) run(commands <-chan request) error {
 		return err
 	}
 
-	for {
-		select {
-		case <-s.ctx.Done():
-			return s.ctx.Err()
-		case in := <-s.stdout:
-			if _, err := s.decode(in); err != nil {
-				return err
-			}
-		case req := <-commands:
-			req.reply <- s.execute(req.command)
-			if s.fatal != nil {
-				return s.fatal
-			}
-		}
-	}
-}
-
-// reads JSON messages from Codex stdout and passes them to the session
-func readCodex(ctx context.Context, r io.Reader, out chan<- incoming) {
-	dec := json.NewDecoder(r)
-	for {
-		var raw json.RawMessage
-		err := dec.Decode(&raw)
-		select {
-		case out <- incoming{raw, err}:
-		case <-ctx.Done():
-			return
-		}
-		if err != nil {
-			return
-		}
-	}
+	return nil
 }
