@@ -8,6 +8,8 @@ As cloud agents/sandboxes are created, users need a way to follow its progress t
 
 ## Usage
 
+GitHub Releases provides binaries for Linux and macOS on amd64 and arm64. Pushing a version tag such as `v1.0.0` publishes a release after the offline test suite passes.
+
 Build Towline from the repository root. You need Go 1.23 or later.
 
 ```sh
