@@ -6,7 +6,7 @@ This example starts a tiny local WebSocket controller, sends one prompt to Claud
 
 - Go 1.23 or later
 - Python 3.10 or later
-- Claude Code CLI available as `claude` on `PATH`, with stream-JSON support
+- Claude Code CLI available as `claude` on `TOWLINE_PATH` (or the system `PATH` by default), with stream-JSON support
 - Claude Code already authenticated
 
 Create a virtual environment and install the Python WebSocket library:

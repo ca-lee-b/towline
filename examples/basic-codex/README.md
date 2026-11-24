@@ -6,7 +6,7 @@ This example starts a tiny local WebSocket controller, sends one prompt to Codex
 
 - Go 1.23 or later
 - Python 3.10 or later
-- Codex CLI available as `codex` on `PATH`, with `app-server` support
+- Codex CLI available as `codex` on `TOWLINE_PATH` (or the system `PATH` by default), with `app-server` support
 - Codex already authenticated
 
 Create a virtual environment and install the Python WebSocket library:

@@ -9,8 +9,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-
-	"github.com/google/uuid"
 )
 
 type Config struct{ URL, Token, Agent, Claude, Codex, Dir string }
@@ -32,31 +30,34 @@ func run(parent context.Context, c Config, store string) error {
 		return fmt.Errorf("endpoint must be a ws or wss URL")
 	}
 
-	binary := c.Codex
-	args := []string{"app-server", "--listen", "stdio://"}
-	var agent adapter
+	// callers that bypass the CLI still get the default adapter
+	// ex: -agent claude -claude /opt/bin/claude (selects Claude and runs /opt/bin/claude)
+	name := c.Agent
+	if name == "" {
+		name = "codex"
+	}
 	pipes := &agentIO{}
-	switch c.Agent {
-	case "", "codex":
-		if binary == "" {
-			binary = "codex"
-		}
-		agent = &codexAdapter{agentIO: pipes, pending: make(map[string]bool)}
+	var agent adapter
+	var binary string
+	var args []string
+
+	switch name {
 	case "claude":
 		binary = c.Claude
-		if binary == "" {
-			binary = "claude"
-		}
-		id, err := uuid.NewRandom()
-		if err != nil {
-			return err
-		}
-		args = []string{"-p", "--verbose", "--input-format", "stream-json", "--output-format", "stream-json", "--permission-prompt-tool", "stdio", "--session-id", id.String()}
-		agent = &claudeAdapter{agentIO: pipes, thread: id.String(), pending: make(map[string]bool)}
+		agent, args, err = newClaudeAdapter(pipes)
+	case "codex":
+		binary = c.Codex
+		agent, args, err = newCodexAdapter(pipes)
 	default:
-		return fmt.Errorf("unknown agent %q (choose codex or claude)", c.Agent)
+		return fmt.Errorf("unknown agent %q (choose claude or codex)", name)
 	}
-	path, err := exec.LookPath(binary)
+	if err != nil {
+		return err
+	}
+	if binary == "" {
+		binary = name
+	}
+	path, err := locateExecutable(binary)
 	if err != nil {
 		return fmt.Errorf("locate agent executable %q: %w", binary, err)
 	}
@@ -120,4 +121,24 @@ func run(parent context.Context, c Config, store string) error {
 		return nil
 	}
 	return err
+}
+
+func locateExecutable(binary string) (string, error) {
+	search := os.Getenv("TOWLINE_PATH")
+	if search == "" || filepath.Base(binary) != binary {
+		return exec.LookPath(binary)
+	}
+	for _, dir := range filepath.SplitList(search) {
+		if dir == "" {
+			continue
+		}
+		candidate, err := filepath.Abs(filepath.Join(dir, binary))
+		if err != nil {
+			return "", err
+		}
+		if path, err := exec.LookPath(candidate); err == nil {
+			return path, nil
+		}
+	}
+	return "", fmt.Errorf("not found on TOWLINE_PATH: %w", exec.ErrNotFound)
 }

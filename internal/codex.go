@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-type frame struct {
+type codexFrame struct {
 	ID     json.RawMessage `json:"id"`
 	Method string          `json:"method"`
 	Params json.RawMessage `json:"params"`
@@ -24,22 +24,26 @@ type codexAdapter struct {
 	serial                  int
 }
 
+func newCodexAdapter(pipes *agentIO) (adapter, []string, error) {
+	return &codexAdapter{agentIO: pipes, pending: make(map[string]bool)}, []string{"app-server", "--listen", "stdio://"}, nil
+}
+
 func (*codexAdapter) operations() []string      { return []string{"send", "steer", "interrupt", "respond"} }
 func (s *codexAdapter) event(in incoming) error { _, err := s.decode(in); return err }
 
 // waits for the next Codex frame or session cancellation
-func (s *codexAdapter) receive() (frame, error) {
+func (s *codexAdapter) receive() (codexFrame, error) {
 	select {
 	case <-s.ctx.Done():
-		return frame{}, s.ctx.Err()
+		return codexFrame{}, s.ctx.Err()
 	case in := <-s.stdout:
 		return s.decode(in)
 	}
 }
 
 // parses a Codex frame, logs events, and tracks active turns and pending requests
-func (s *codexAdapter) decode(in incoming) (frame, error) {
-	var f frame
+func (s *codexAdapter) decode(in incoming) (codexFrame, error) {
+	var f codexFrame
 	if in.err != nil {
 		return f, in.err
 	}

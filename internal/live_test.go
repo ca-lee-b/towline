@@ -33,7 +33,7 @@ func TestLiveReconnect(t *testing.T) {
 	}))
 	defer server.Close()
 	dir := t.TempDir()
-	config := Config{URL: "ws" + strings.TrimPrefix(server.URL, "http"), Codex: "codex", Dir: dir}
+	config := Config{URL: "ws" + strings.TrimPrefix(server.URL, "http"), Agent: "codex", Dir: dir}
 	store := t.TempDir()
 	done := make(chan struct{})
 	var runErr error

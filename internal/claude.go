@@ -16,6 +16,16 @@ type claudeAdapter struct {
 	stopping     bool
 }
 
+func newClaudeAdapter(pipes *agentIO) (adapter, []string, error) {
+	id, err := uuid.NewRandom()
+	if err != nil {
+		return nil, nil, err
+	}
+	thread := id.String()
+	args := []string{"-p", "--verbose", "--input-format", "stream-json", "--output-format", "stream-json", "--permission-prompt-tool", "stdio", "--session-id", thread}
+	return &claudeAdapter{agentIO: pipes, thread: thread, pending: make(map[string]bool)}, args, nil
+}
+
 func (*claudeAdapter) initialize() error    { return nil }
 func (*claudeAdapter) operations() []string { return []string{"send", "interrupt", "respond"} }
 

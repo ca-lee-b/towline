@@ -14,6 +14,8 @@ Build Towline from the repository root. You need Go 1.23 or later.
 go build -o ./bin/towline ./cmd/towline
 ```
 
+Codex is the default adapter. Select an adapter with `-agent`. Set `TOWLINE_PATH` to the directories Towline should search for the selected executable (for example, `TOWLINE_PATH=/opt/agents/bin:/usr/local/bin` on Unix). If unset or empty, Towline uses the system `PATH`. An explicit executable path bypasses the search. Set the controller URL with `-endpoint` or `TOWLINE_ENDPOINT`. If the controller requires a bearer token, set `TOWLINE_TOKEN`.
+
 ### Codex
 
 In the sandbox, install and authenticate the Codex CLI. It must support `app-server`. Start Towline with your controller's WebSocket URL and the directory where Codex should work.
@@ -22,7 +24,7 @@ In the sandbox, install and authenticate the Codex CLI. It must support `app-ser
 ./bin/towline -endpoint wss://controller.example.com/sandboxes/123 -dir /workspace
 ```
 
-You can set the URL with `TOWLINE_ENDPOINT`. If the controller requires a bearer token, set `TOWLINE_TOKEN`. Towline looks for `codex` on `PATH`. Use `-codex /path/to/codex` to select a different executable.
+Use `-codex /path/to/codex` to select a different executable.
 
 ### Claude Code
 
