@@ -16,6 +16,8 @@ type command struct {
 	TurnID    string          `json:"turnId"`
 	RequestID json.RawMessage `json:"requestId"`
 	Result    json.RawMessage `json:"result,omitempty"`
+	Model     json.RawMessage `json:"model,omitempty"`
+	Effort    json.RawMessage `json:"effort,omitempty"`
 	From      int             `json:"from"`
 }
 
@@ -81,7 +83,7 @@ func (s *agentIO) write(v object) error {
 // The session records the outcome before attempting reply delivery.
 func (s *session) execute(c command) commandReply {
 	var digest [sha256.Size]byte
-	mutating := c.Op == "send" || c.Op == "steer" || c.Op == "interrupt" || c.Op == "respond"
+	mutating := c.Op == "send" || c.Op == "steer" || c.Op == "interrupt" || c.Op == "respond" || c.Op == "set_model_settings"
 	if mutating {
 		payload, err := json.Marshal(c)
 		if err != nil {
