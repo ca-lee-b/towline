@@ -49,15 +49,26 @@ A successful reply contains the command ID and a `result`. An error reply contai
 | Operation | Purpose |
 | --- | --- |
 | `capabilities` | List supported agent operations in `result.operations`. |
+| `list_models` | List model IDs, display names, and supported effort values. |
+| `get_model_settings` | Read the model and effort overrides for the next turn. |
+| `set_model_settings` | Set either override or both for the next turn. |
 | `send` | Start a turn with `text`. Returns `threadId` and `turnId`. |
 | `steer` / `interrupt` | Add `text` to an active turn or interrupt it with its `turnId`. |
 | `respond` | Answer an agent request with its `requestId` and `result`. |
 | `replay` | Resume events at sequence `from` (inclusive), then receive live events. |
 | `prepare_shutdown` | Return `busy` during work or `ready_to_stop` when the sandbox can stop. |
 
+Both Codex and Claude support the model commands. For example, select a model ID from `list_models` and send:
+
+```json
+{"id":"2","op":"set_model_settings","model":"sonnet","effort":"high"}
+```
+
+Omit a field to keep its current value or pass `null` to restore the provider default. The example uses a Claude model ID. The settings reply contains both overrides and uses `null` for defaults. Updates can be queued during a running turn and apply to the next `send` in the same conversation. Towline validates against the provider catalog when you set an override. Provider errors applying an accepted override can surface on `send`. Use a fresh command ID after correcting settings and retrying a failed send. Overrides last for the current Towline process.
+
 Event frames contain `seq` and `event`. Sequence numbers start at 1 for each stream. After reconnect, the controller can replay missed events from the last processed sequence plus one.
 
-Claude supports `send`, `interrupt`, and `respond`. For `respond`, copy the string `request_id` from Claude's `can_use_tool` request into `requestId`. To approve a request, send `{"behavior":"allow","updatedInput":{...}}` with the approved tool arguments. To deny it, send `{"behavior":"deny","message":"reason"}`. Claude runs its own tools.
+For Claude `respond`, copy the string `request_id` from Claude's `can_use_tool` request into `requestId`. To approve a request, send `{"behavior":"allow","updatedInput":{...}}` with the approved tool arguments. To deny it, send `{"behavior":"deny","message":"reason"}`. Claude runs its own tools.
 
 Codex streams its app-server events. Claude streams objects with `agent: "claude"`, `threadId`, `turnId`, and the native stream-JSON frame in `message`. Claude's `result` message ends a turn, including when the turn fails.
 

@@ -18,17 +18,21 @@ type codexFrame struct {
 }
 type codexAdapter struct {
 	*agentIO
-	thread, turn, completed string
-	stopping                bool
-	pending                 map[string]bool
-	serial                  int
+	thread, turn, completed     string
+	stopping                    bool
+	pending                     map[string]bool
+	serial                      int
+	settings, defaults, applied modelSettings
+	modelEfforts                map[string]string
 }
 
 func newCodexAdapter(pipes *agentIO) (adapter, []string, error) {
 	return &codexAdapter{agentIO: pipes, pending: make(map[string]bool)}, []string{"app-server", "--listen", "stdio://"}, nil
 }
 
-func (*codexAdapter) operations() []string      { return []string{"send", "steer", "interrupt", "respond"} }
+func (*codexAdapter) operations() []string {
+	return []string{"send", "steer", "interrupt", "respond", "list_models", "get_model_settings", "set_model_settings"}
+}
 func (s *codexAdapter) event(in incoming) error { _, err := s.decode(in); return err }
 
 // waits for the next Codex frame or session cancellation
@@ -125,6 +129,13 @@ func (s *codexAdapter) call(method string, params object) (json.RawMessage, erro
 // executes one endpoint command against the current session
 func (s *codexAdapter) handle(c command) (any, error) {
 	switch c.Op {
+	case "list_models":
+		models, _, err := s.listModels()
+		return models, err
+	case "get_model_settings":
+		return s.settings, nil
+	case "set_model_settings":
+		return s.setModelSettings(c)
 	case "prepare_shutdown":
 		if s.turn != "" || len(s.pending) > 0 {
 			return nil, errors.New("busy")
@@ -160,18 +171,26 @@ func (s *codexAdapter) handle(c command) (any, error) {
 				return nil, err
 			}
 
-			var r struct{ Thread struct{ ID string } }
+			var r struct {
+				Thread          struct{ ID string }
+				Model           *string
+				ReasoningEffort *string
+			}
 			if json.Unmarshal(raw, &r) != nil || r.Thread.ID == "" {
 				return nil, errors.New("missing Codex thread ID")
 			}
 
 			s.thread = r.Thread.ID
+			s.defaults = modelSettings{r.Model, r.ReasoningEffort}
 		}
-		raw, err := s.call("turn/start", object{"threadId": s.thread, "input": input})
+		params := object{"threadId": s.thread, "input": input}
+		s.addModelSettings(params)
+		raw, err := s.call("turn/start", params)
 		if err != nil {
 			return nil, err
 		}
 
+		s.applied = s.settings
 		var r struct{ Turn struct{ ID string } }
 		if json.Unmarshal(raw, &r) != nil || r.Turn.ID == "" {
 			return nil, errors.New("missing Codex turn ID")
@@ -220,4 +239,104 @@ func (s *codexAdapter) initialize() error {
 	}
 
 	return nil
+}
+
+func (s *codexAdapter) listModels() ([]modelOption, string, error) {
+	models := []modelOption{}
+	defaultEfforts := make(map[string]string)
+	var defaultModel string
+	params := object{}
+	for {
+		raw, err := s.call("model/list", params)
+		if err != nil {
+			return nil, "", err
+		}
+		var page struct {
+			Data []struct {
+				Model, DisplayName, DefaultReasoningEffort string
+				IsDefault                                  bool
+				SupportedReasoningEfforts                  []struct{ ReasoningEffort string }
+			}
+			NextCursor string
+		}
+		if err := json.Unmarshal(raw, &page); err != nil {
+			return nil, "", err
+		}
+		for _, m := range page.Data {
+			efforts := make([]string, 0, len(m.SupportedReasoningEfforts))
+			for _, effort := range m.SupportedReasoningEfforts {
+				efforts = append(efforts, effort.ReasoningEffort)
+			}
+			models = append(models, modelOption{m.Model, m.DisplayName, efforts})
+			defaultEfforts[m.Model] = m.DefaultReasoningEffort
+			if m.IsDefault {
+				defaultModel = m.Model
+			}
+		}
+		if page.NextCursor == "" {
+			s.modelEfforts = defaultEfforts
+			return models, defaultModel, nil
+		}
+		params["cursor"] = page.NextCursor
+	}
+}
+
+func (s *codexAdapter) setModelSettings(c command) (modelSettings, error) {
+	if s.stopping {
+		return s.settings, errors.New("stopping")
+	}
+	settings, err := c.modelSettings(s.settings)
+	if err != nil {
+		return s.settings, err
+	}
+	models, defaultModel, err := s.listModels()
+	if err != nil {
+		return s.settings, err
+	}
+	if s.defaults.Model != nil {
+		defaultModel = *s.defaults.Model
+	} else if settings.Model == nil && settings.Effort != nil {
+		raw, err := s.call("config/read", object{})
+		if err != nil {
+			return s.settings, err
+		}
+		var result struct{ Config struct{ Model string } }
+		if err := json.Unmarshal(raw, &result); err != nil {
+			return s.settings, err
+		}
+		if result.Config.Model != "" {
+			defaultModel = result.Config.Model
+		}
+	}
+	if err := settings.validate(models, defaultModel); err != nil {
+		return s.settings, err
+	}
+	s.settings = settings
+	return settings, nil
+}
+
+func (s *codexAdapter) addModelSettings(params object) {
+	model, effort := s.settings.Model, s.settings.Effort
+	if model == nil && s.applied.Model != nil {
+		model = s.defaults.Model
+	}
+	if effort == nil && (model != nil || s.applied.Effort != nil) {
+		effort = s.defaults.Effort
+		if s.settings.Model != nil || effort == nil {
+			if model == nil {
+				model = s.defaults.Model
+			}
+			if model != nil {
+				if level := s.modelEfforts[*model]; level != "" {
+					effort = &level
+				}
+			}
+		}
+	}
+	if model != nil {
+		params["model"] = *model
+	}
+	if effort != nil {
+		params["effort"] = *effort
+	}
 }
